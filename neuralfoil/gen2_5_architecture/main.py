@@ -1,12 +1,19 @@
-import aerosandbox as asb
-import aerosandbox.numpy as np
+try:
+    import optisandbox.numpy as np
+except ImportError:
+    import numpy as np
+
 from typing import Union, Dict, Set, List
 from pathlib import Path
-from neuralfoil.gen2_5_architecture._basic_data_type import Data
 
 npz_file_directory = Path(__file__).parent / "nn_weights_and_biases"
 
-bl_x_points = Data.bl_x_points
+NUM_BL_POINTS = 32
+
+
+def compute_optimal_x_points(n_points):
+    s = np.linspace(0, 1, n_points + 1)
+    return (s[1:] + s[:-1]) / 2
 
 
 def _sigmoid(x):
@@ -41,7 +48,6 @@ def get_aero_from_kulfan_parameters(
         model_size="large"
 ) -> Dict[str, Union[float, np.ndarray]]:
 
-    ### Load the neural network parameters
     filename = npz_file_directory / f"nn-{model_size}.npz"
     if not filename.exists():
         raise FileNotFoundError(
@@ -49,7 +55,6 @@ def get_aero_from_kulfan_parameters(
 
     data: Dict[str, np.ndarray] = np.load(filename)
 
-    ### Prepare the inputs for the neural network
     input_rows: List[Union[float, np.ndarray]] = [
         *[kulfan_parameters["upper_weights"][i] for i in range(8)],
         *[kulfan_parameters["lower_weights"][i] for i in range(8)],
@@ -64,9 +69,7 @@ def get_aero_from_kulfan_parameters(
         xtr_upper,
         xtr_lower,
     ]
-
-    ### Handle the vectorization, where here we figure out how many cases the user wants to run
-    N_cases = 1  # TODO rework this with np.atleast1d
+    N_cases = 1
     for row in input_rows:
         if np.length(row) > 1:
             if N_cases == 1:
@@ -74,16 +77,16 @@ def get_aero_from_kulfan_parameters(
             else:
                 if np.length(row) != N_cases:
                     raise ValueError(
-                        f"The inputs to the neural network must all have the same length. (Conflicting lengths: {N_cases} and {np.length(row)})"
+                        f"The inputs to the neural network must all have the same length. "
+                        f"(Conflicting lengths: {N_cases} and {np.length(row)})"
                     )
 
     for i, row in enumerate(input_rows):
         input_rows[i] = np.ones(N_cases) * row
 
     x = np.stack(input_rows, axis=1)  # N_cases x N_inputs
-    ##### Evaluate the neural network
-
-    ### First, determine what the structure of the neural network is (i.e., how many layers it has) by looking at the keys.
+    # Evaluate the neural network
+    # First, determine what the structure of the neural network is (i.e., how many layers it has) by looking at the keys
     # These keys come from the dictionary of saved weights/biases for the specified neural network.
     try:
         layer_indices: Set[int] = set([
@@ -98,32 +101,33 @@ def get_aero_from_kulfan_parameters(
         )
     layer_indices: List[int] = sorted(list(layer_indices))
 
-    ### Now, set up evaluation of the basic neural network.
-    def net(x: np.ndarray):
+    # Now, set up evaluation of the basic neural network.
+    def net(_x: np.ndarray):
         """
         Evaluates the raw network (taking in scaled inputs and returning scaled outputs).
         Input `x` dims: N_cases x N_inputs
         Output `y` dims: N_cases x N_outputs
         """
-        x = np.transpose(x)
+        _x = np.transpose(_x)
         layer_indices_to_iterate = layer_indices.copy()
 
         while len(layer_indices_to_iterate) != 0:
             i = layer_indices_to_iterate.pop(0)
             w = data[f"net.{i}.weight"]
             b = data[f"net.{i}.bias"]
-            x = w @ x + np.reshape(b, (-1, 1))
+            _x = w @ _x + np.reshape(b, (-1, 1))
 
             if len(layer_indices_to_iterate) != 0:  # Don't apply the activation function on the last layer
-                x = np.swish(x)
-        x = np.transpose(x)
-        return x
+                _x = np.swish(_x)
+        _x = np.transpose(_x)
+        return _x
 
     y = net(x)  # N_outputs x N_cases
     y[:, 0] = y[:, 0] - _squared_mahalanobis_distance(x) / (2 * _scaled_input_distribution["N_inputs"])
-    # This was baked into training in order to ensure the network asymptotes to zero analysis confidence far away from the training data.
+    # This was baked into training in order to ensure the network
+    # asymptotes to zero analysis confidence far away from the training data.
 
-    ### Then, flip the inputs and evaluate the network again.
+    # Then, flip the inputs and evaluate the network again.
     # The goal here is to embed the invariant of "symmetry across alpha" into the network evaluation.
     # (This was also performed during training, so the network is "intended" to be evaluated this way.)
 
@@ -137,11 +141,11 @@ def get_aero_from_kulfan_parameters(
 
     y_flipped = net(x_flipped)
     y_flipped[:, 0] = y_flipped[:, 0] - _squared_mahalanobis_distance(x_flipped) / (
-                2 * _scaled_input_distribution["N_inputs"]
+            2 * _scaled_input_distribution["N_inputs"]
     )
-    # This was baked into training in order to ensure the network asymptotes to zero analysis confidence far away from the training data.
-
-    ### The resulting outputs will also be flipped, so we need to flip them back to their normal orientation
+    # This was baked into training in order to ensure the network
+    # asymptotes to zero analysis confidence far away from the training data.
+    # The resulting outputs will also be flipped, so we need to flip them back to their normal orientation
     y_unflipped = y_flipped + 0.  # This is a array-api-agnostic way to force a memory copy of the array to be made.
     y_unflipped[:, 1] = y_flipped[:, 1] * -1  # CL
     y_unflipped[:, 3] = y_flipped[:, 3] * -1  # CM
@@ -156,13 +160,13 @@ def get_aero_from_kulfan_parameters(
     y_unflipped[:, 6 + 32 * 2: 6 + 32 * 3] = -1 * y_flipped[:, 6 + 32 * 5: 6 + 32 * 6]
     y_unflipped[:, 6 + 32 * 5: 6 + 32 * 6] = -1 * y_flipped[:, 6 + 32 * 2: 6 + 32 * 3]
 
-    ### Then, average the two outputs to get the "symmetric" result
+    # Then, average the two outputs to get the "symmetric" result
     y_fused = (y + y_unflipped) / 2
     y_fused[:, 0] = _sigmoid(y_fused[:, 0])  # Analysis confidence, a binary variable
     y_fused[:, 4] = np.clip(y_fused[:, 4], 0, 1)  # Top_Xtr
     y_fused[:, 5] = np.clip(y_fused[:, 5], 0, 1)  # Bot_Xtr
 
-    ### Unpack outputs
+    # Unpack outputs
     analysis_confidence = y_fused[:, 0]
     CL = y_fused[:, 1] / 2
     CD = np.exp((y_fused[:, 2] - 2) * 2)
@@ -170,208 +174,49 @@ def get_aero_from_kulfan_parameters(
     Top_Xtr = y_fused[:, 4]
     Bot_Xtr = y_fused[:, 5]
 
-    upper_bl_ue_over_vinf = y_fused[:, 6 + Data.N * 2:6 + Data.N * 3]
-    lower_bl_ue_over_vinf = y_fused[:, 6 + Data.N * 5:6 + Data.N * 6]
+    upper_bl_ue_over_vinf = y_fused[:, 6 + NUM_BL_POINTS * 2:6 + NUM_BL_POINTS * 3]
+    lower_bl_ue_over_vinf = y_fused[:, 6 + NUM_BL_POINTS * 5:6 + NUM_BL_POINTS * 6]
 
     upper_theta = (
-                          (10 ** y_fused[:, 6: 6 + Data.N]) - 0.1
+                          (10 ** y_fused[:, 6: 6 + NUM_BL_POINTS]) - 0.1
                   ) / (np.abs(upper_bl_ue_over_vinf) * np.reshape(Re, (-1, 1)))
-    upper_H = 2.6 * np.exp(y_fused[:, 6 + Data.N: 6 + Data.N * 2])
+    upper_H = 2.6 * np.exp(y_fused[:, 6 + NUM_BL_POINTS: 6 + NUM_BL_POINTS * 2])
 
     lower_theta = (
-                          (10 ** y_fused[:, 6 + Data.N * 3: 6 + Data.N * 4]) - 0.1
+                          (10 ** y_fused[:, 6 + NUM_BL_POINTS * 3: 6 + NUM_BL_POINTS * 4]) - 0.1
                   ) / (np.abs(lower_bl_ue_over_vinf) * np.reshape(Re, (-1, 1)))
-    lower_H = 2.6 * np.exp(y_fused[:, 6 + Data.N * 4: 6 + Data.N * 5])
+    lower_H = 2.6 * np.exp(y_fused[:, 6 + NUM_BL_POINTS * 4: 6 + NUM_BL_POINTS * 5])
 
     results = {
         "analysis_confidence": analysis_confidence,
-        "CL"                 : CL,
-        "CD"                 : CD,
-        "CM"                 : CM,
-        "Top_Xtr"            : Top_Xtr,
-        "Bot_Xtr"            : Bot_Xtr,
+        "CL": CL,
+        "CD": CD,
+        "CM": CM,
+        "Top_Xtr": Top_Xtr,
+        "Bot_Xtr": Bot_Xtr,
         **{
             f"upper_bl_theta_{i}": upper_theta[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
         **{
             f"upper_bl_H_{i}": upper_H[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
         **{
             f"upper_bl_ue/vinf_{i}": upper_bl_ue_over_vinf[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
         **{
             f"lower_bl_theta_{i}": lower_theta[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
         **{
             f"lower_bl_H_{i}": lower_H[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
         **{
             f"lower_bl_ue/vinf_{i}": lower_bl_ue_over_vinf[:, i]
-            for i in range(Data.N)
+            for i in range(NUM_BL_POINTS)
         },
     }
     return {key: np.reshape(value, -1) for key, value in results.items()}
-
-
-def get_aero_from_airfoil(
-        airfoil: Union[asb.Airfoil, asb.KulfanAirfoil],
-        alpha: Union[float, np.ndarray],
-        Re: Union[float, np.ndarray],
-        n_crit: Union[float, np.ndarray] = 9.0,
-        xtr_upper: Union[float, np.ndarray] = 1.0,
-        xtr_lower: Union[float, np.ndarray] = 1.0,
-        model_size="large",
-) -> Dict[str, Union[float, np.ndarray]]:
-
-    ### Normalize the inputs and evaluate
-    normalization_outputs = airfoil.normalize(return_dict=True)
-    normalized_airfoil = normalization_outputs["airfoil"].to_kulfan_airfoil(
-        n_weights_per_side=8,
-        normalize_coordinates=False  # No need to redo this
-    )
-    delta_alpha = normalization_outputs["rotation_angle"]  # degrees
-    x_translation_LE = normalization_outputs["x_translation"]
-    y_translation_LE = normalization_outputs["y_translation"]
-    scale = normalization_outputs["scale_factor"]
-
-    x_translation_qc = -x_translation_LE + 0.25 * (1 / scale * np.cosd(delta_alpha)) - 0.25
-    y_translation_qc = -y_translation_LE + 0.25 * (1 / scale * np.sind(-delta_alpha))
-
-    raw_aero = get_aero_from_kulfan_parameters(
-        kulfan_parameters=normalized_airfoil.kulfan_parameters,
-        alpha=alpha + delta_alpha,
-        Re=Re / scale,
-        n_crit=n_crit,
-        xtr_upper=xtr_upper,
-        xtr_lower=xtr_lower,
-        model_size=model_size,
-    )
-
-    ### Correct the force vectors and lift-induced moment from translation
-    extra_CM = -raw_aero["CL"] * x_translation_qc + raw_aero["CD"] * y_translation_qc
-    raw_aero["CM"] = raw_aero["CM"] + extra_CM
-
-    return raw_aero
-
-
-def get_aero_from_coordinates(
-        coordinates: np.ndarray,
-        alpha: Union[float, np.ndarray],
-        Re: Union[float, np.ndarray],
-        n_crit: Union[float, np.ndarray] = 9.0,
-        xtr_upper: Union[float, np.ndarray] = 1.0,
-        xtr_lower: Union[float, np.ndarray] = 1.0,
-        model_size="large",
-):
-    return get_aero_from_airfoil(
-        airfoil=asb.Airfoil(
-            coordinates=coordinates
-        ),
-        alpha=alpha,
-        Re=Re,
-        n_crit=n_crit,
-        xtr_upper=xtr_upper,
-        xtr_lower=xtr_lower,
-        model_size=model_size
-    )
-
-
-def get_aero_from_dat_file(
-        filename,
-        alpha: Union[float, np.ndarray],
-        Re: Union[float, np.ndarray],
-        model_size="large",
-):
-    with open(filename, "r") as f:
-        raw_text = f.readlines()
-
-    from aerosandbox.geometry.airfoil.airfoil_families import get_coordinates_from_raw_dat
-    return get_aero_from_coordinates(
-        coordinates=get_coordinates_from_raw_dat(raw_text=raw_text),
-        alpha=alpha,
-        Re=Re,
-        model_size=model_size
-    )
-
-
-if __name__ == '__main__':
-
-    airfoil = asb.Airfoil("dae11").repanel().normalize()
-    # airfoil = asb.Airfoil("naca0050")
-    # airfoil = asb.Airfoil("naca0012").add_control_surface(10, hinge_point_x=0.5)
-
-    alpha = np.linspace(-5, 15, 50)
-    Re = 1e6
-
-    aero = get_aero_from_airfoil(
-        airfoil, 3, Re,
-        model_size="xxxlarge"
-    )
-
-    aeros = {}
-
-    model_sizes = ["xxxlarge"]
-
-    for model_size in model_sizes:
-        aeros[f"NF-{model_size}"] = get_aero_from_airfoil(
-            airfoil=airfoil,
-            alpha=alpha,
-            Re=Re,
-            model_size=model_size
-        )
-
-    if True:
-
-        aeros["XFoil"] = asb.XFoil(
-            airfoil=airfoil,
-            Re=Re,
-            max_iter=20,
-            xfoil_repanel=True
-        ).alpha(alpha)
-
-    import matplotlib.pyplot as plt
-    import aerosandbox.tools.pretty_plots as p
-
-    fig, ax = plt.subplots(2, 2, figsize=(10, 8))
-    for label, aero in aeros.items():
-        if "xfoil" in label.lower():
-            a = aero["alpha"]
-            kwargs = dict(
-                color="k"
-            )
-        else:
-            a = alpha
-            kwargs = dict(
-                alpha=0.6,
-            )
-
-        ax[0, 0].plot(a, aero["CL"], **kwargs)
-        ax[0, 1].plot(a, aero["CD"], label=label, **kwargs)
-        ax[1, 0].plot(a, aero["CM"], **kwargs)
-        ax[1, 1].plot(aero["CD"], aero["CL"], **kwargs)
-    plt.sca(ax[0, 1])
-    plt.legend()
-    ax[0, 0].set_xlabel("$\\alpha$")
-    ax[0, 0].set_ylabel("$C_L$")
-
-    ax[0, 1].set_xlabel("$\\alpha$")
-    ax[0, 1].set_ylabel("$C_D$")
-    ax[0, 1].set_ylim(bottom=0)
-
-    ax[1, 0].set_xlabel("$\\alpha$")
-    ax[1, 0].set_ylabel("$C_M$")
-
-    ax[1, 1].set_xlabel("$C_D$")
-    ax[1, 1].set_ylabel("$C_L$")
-    ax[1, 1].set_xlim(left=0)
-
-    from aerosandbox.tools.string_formatting import eng_string
-
-    plt.suptitle(f"\"{airfoil.name}\" Airfoil at $Re_c = \\mathrm{{{eng_string(Re)}}}$")
-
-    p.show_plot()
