@@ -1,7 +1,9 @@
 try:
     import optisandbox.numpy as np
+    from optisandbox.numpy import length
 except ImportError:
     import numpy as np
+    length = len
 
 from typing import Union, Dict, Set, List
 from pathlib import Path
@@ -60,9 +62,9 @@ def get_aero_from_kulfan_parameters(
         *[kulfan_parameters["lower_weights"][i] for i in range(8)],
         kulfan_parameters["leading_edge_weight"],
         kulfan_parameters["TE_thickness"] * 50,
-        np.sind(2 * alpha),
-        np.cosd(alpha),
-        1 - np.cosd(alpha) ** 2,
+        np.sin(np.radians(2 * alpha)),
+        np.cos(np.radians(alpha)),
+        1 - np.cos(np.radians(alpha)) ** 2,
         (np.log(Re) - 12.5) / 3.5,
         # No mach
         (n_crit - 9) / 4.5,
@@ -71,14 +73,14 @@ def get_aero_from_kulfan_parameters(
     ]
     N_cases = 1
     for row in input_rows:
-        if np.length(row) > 1:
+        if length(np.atleast_1d(row)) > 1:
             if N_cases == 1:
-                N_cases = np.length(row)
+                N_cases = length(row)
             else:
-                if np.length(row) != N_cases:
+                if length(row) != N_cases:
                     raise ValueError(
                         f"The inputs to the neural network must all have the same length. "
-                        f"(Conflicting lengths: {N_cases} and {np.length(row)})"
+                        f"(Conflicting lengths: {N_cases} and {length(row)})"
                     )
 
     for i, row in enumerate(input_rows):
@@ -118,7 +120,7 @@ def get_aero_from_kulfan_parameters(
             _x = w @ _x + np.reshape(b, (-1, 1))
 
             if len(layer_indices_to_iterate) != 0:  # Don't apply the activation function on the last layer
-                _x = np.swish(_x)
+                _x = _x / (1 + np.exp(-_x))
         _x = np.transpose(_x)
         return _x
 
