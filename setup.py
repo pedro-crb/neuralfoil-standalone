@@ -6,7 +6,7 @@ setup(
     description='NeuralFoil is an airfoil aerodynamics analysis tool using physics-informed machine learning, '
                 'in pure Python/NumPy.',
     long_description_content_type='text/markdown',
-    packages=["neuralfoil"],
+    packages=["neuralfoil_standalone"],
     python_requires='>=3.11',
     install_requires=[
         'numpy >= 1',

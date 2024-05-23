@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-import neuralfoil as nf
+import neuralfoil_standalone as nf
 
 
 foil_kulfan_parameters = {
