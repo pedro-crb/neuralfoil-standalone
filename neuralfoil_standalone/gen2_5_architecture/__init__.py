@@ -1,1 +1,1 @@
-from .main import get_aero_from_kulfan_parameters
+from .main import get_aero_from_kulfan_parameters, get_aero_with_corrections

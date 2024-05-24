@@ -1,11 +1,11 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
     name='neuralfoil-standalone',
     version="0.2.3",
     description='neuralfoil-standalone is a fork of NeuralFoil without the explicit AeroSandbox dependency',
     long_description_content_type='text/markdown',
-    packages=find_packages(),
+    packages=['neuralfoil_standalone'],
     python_requires='>=3.11',
     install_requires=[
         'numpy >= 1',

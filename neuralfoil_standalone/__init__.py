@@ -1,1 +1,1 @@
-from .gen2_5_architecture import get_aero_from_kulfan_parameters
+from .gen2_5_architecture import get_aero_from_kulfan_parameters, get_aero_with_corrections
