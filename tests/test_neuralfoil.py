@@ -24,13 +24,24 @@ def test_basic_functionality():
 
 
 def test_corrections():
+    params = np.array([
+        [10, 100000, 0.0, 3.0, 0.7, 0.1, 0.1, 7],
+        [11, 200000, 0.0, 2.0, 0.7, 0.2, 0.2, 9],
+        [12, 300000, 0.0, 1.0, 0.7, 0.3, 0.3, 11]
+    ])
+
     aero = nf.get_aero_with_corrections(
         kulfan_parameters=foil_kulfan_parameters,
-        alpha=np.array([5, 18, 25, 45, 89, 150, 180, 13, 16, 6, 19, 6, 23, 6, 6, 6, 6]),
-        Re=np.array([1e6] * 17),
-        mach=np.array([0.5, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.7, 0.9, 0.98, 0.98, 1.0, 1.0, 1.1, 1.5, 2.0, 3.0]),
-        control_surface_deflection=3,
-        control_surface_hinge_point=0.2,
+        alpha=params[:, 0],
+        Re=params[:, 1],
+        mach=params[:, 2],
+        n_crit=params[:, 7],
+        xtr_upper=params[:, 5],
+        xtr_lower=params[:, 6],
+        model_size='large',
+        control_surface_deflection=params[:, 3],
+        control_surface_hinge_point=1-params[:, 4],
+        wave_drag_foil_thickness=0.12,
     )
     print('\n')
     print(aero)
