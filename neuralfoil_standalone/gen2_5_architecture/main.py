@@ -107,6 +107,11 @@ def get_aero_from_kulfan_parameters(
         xtr_lower: Union[float, np.ndarray] = 1.0,
         model_size="large"
 ) -> Dict[str, Union[float, np.ndarray]]:
+    alpha = np.array(alpha, dtype='float')
+    Re = np.array(Re, dtype='float')
+    n_crit = np.array(n_crit, dtype='float')
+    xtr_upper = np.array(xtr_upper, dtype='float')
+    xtr_lower = np.array(xtr_lower, dtype='float')
 
     filename = npz_file_directory / f"nn-{model_size}.npz"
     if not filename.exists():
@@ -295,6 +300,16 @@ def get_aero_with_corrections(
         control_surface_hinge_point: Union[float, np.ndarray] = 0.0,
         wave_drag_foil_thickness: float = 0.12,
         ) -> Dict[str, Union[float, np.ndarray]]:
+    # setup:
+    alpha = np.array(alpha, dtype='float')
+    Re = np.array(Re, dtype='float')
+    mach = np.array(mach, dtype='float')
+    n_crit = np.array(n_crit, dtype='float')
+    xtr_upper = np.array(xtr_upper, dtype='float')
+    xtr_lower = np.array(xtr_lower, dtype='float')
+    control_surface_deflection = np.array(control_surface_deflection, dtype='float')
+    control_surface_hinge_point = np.array(control_surface_hinge_point, dtype='float')
+
     # Neuralfoil Run
     alpha = np.mod(alpha + 180, 360) - 180
     effectiveness = 1 - np.maximum(0, control_surface_hinge_point + 1e-16) ** 2.751428551177291
