@@ -50,7 +50,7 @@ def _squared_mahalanobis_distance(x):
     )
 
 
-def _blend(switch: float, value_switch_high, value_switch_low):
+def _blend(switch, value_switch_high, value_switch_low):
     weight_to_value_switch_high = 0.5*np.tanh(switch) + 0.5
     blend_value = (
             value_switch_high * weight_to_value_switch_high +
@@ -183,7 +183,7 @@ def get_aero_from_kulfan_parameters(
             _x = w @ _x + np.reshape(b, (-1, 1))
 
             if len(layer_indices_to_iterate) != 0:  # Don't apply the activation function on the last layer
-                _x = _x / (1 + np.exp(-_x))
+                _x = _x / (1 + np.exp(-np.clip(_x, -500.0, 500.0)))
         _x = np.transpose(_x)
         return _x
 
@@ -227,6 +227,7 @@ def get_aero_from_kulfan_parameters(
 
     # Then, average the two outputs to get the "symmetric" result
     y_fused = (y + y_unflipped) / 2
+    y_fused = np.clip(y_fused, -50.0, 50.0)
     y_fused[:, 0] = _sigmoid(y_fused[:, 0])  # Analysis confidence, a binary variable
     y_fused[:, 4] = np.clip(y_fused[:, 4], 0, 1)  # Top_Xtr
     y_fused[:, 5] = np.clip(y_fused[:, 5], 0, 1)  # Bot_Xtr
