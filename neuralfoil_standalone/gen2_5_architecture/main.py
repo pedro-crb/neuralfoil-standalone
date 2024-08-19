@@ -1,20 +1,4 @@
-try:
-    import optisandbox.numpy as np
-    from optisandbox.numpy import length
-    min_fn = np.softmin
-    max_fn = np.softmax
-except ImportError:
-    import numpy as np
-    length = len
-
-    # noinspection PyUnusedLocal
-    def min_fn(*args, softness=None, hardness=None):
-        return np.min(args, axis=0)
-
-    # noinspection PyUnusedLocal
-    def max_fn(*args, softness=None, hardness=None):
-        return np.max(args, axis=0)
-
+import numpy as np
 from typing import Union, Dict, Set, List
 from pathlib import Path
 
@@ -32,8 +16,56 @@ def _sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def _inverse_sigmoid(x):
-    return -np.log(1 / x - 1)
+def softmax(
+        *args: Union[float, np.ndarray],
+        softness: float = None,
+        hardness: float = None,
+) -> Union[float, np.ndarray]:
+    n_specified_arguments = (hardness is not None) + (softness is not None)
+    if n_specified_arguments == 0:
+        softness = 1
+    elif n_specified_arguments == 2:
+        raise ValueError("You must provide exactly one of `hardness` or `softness`.")
+
+    if hardness is not None:
+        softness = 1 / hardness
+
+    if np.any(softness <= 0):
+        if softness is not None:
+            raise ValueError("The value of `softness` must be positive.")
+        else:
+            raise ValueError("The value of `hardness` must be positive.")
+
+    if len(args) <= 1:
+        raise ValueError("You must call softmax with the value of two or more arrays that you'd like to take the "
+                         "element-wise softmax of.")
+
+    # Scale the args by softness
+    args = [arg / softness for arg in args]
+    mn = args[0]
+    mx = args[0]
+    for arg in args[1:]:
+        mn = np.fmin(mn, arg)
+        mx = np.fmax(mx, arg)
+
+    out = mx + np.log(sum(
+        [np.exp(np.maximum(array - mx, -500)) for array in args]
+    )
+    )
+    out = out * softness
+    return out
+
+
+def softmin(
+        *args: Union[float, np.ndarray],
+        softness: float = None,
+        hardness: float = None,
+) -> Union[float, np.ndarray]:
+    return -softmax(
+        *[-arg for arg in args],
+        softness=softness,
+        hardness=hardness,
+    )
 
 
 _scaled_input_distribution = dict(np.load(npz_file_directory / "scaled_input_distribution.npz"))
@@ -136,14 +168,14 @@ def get_aero_from_kulfan_parameters(
     ]
     N_cases = 1
     for row in input_rows:
-        if length(np.atleast_1d(row)) > 1:
+        if len(np.atleast_1d(row)) > 1:
             if N_cases == 1:
-                N_cases = length(row)
+                N_cases = len(row)
             else:
-                if length(row) != N_cases:
+                if len(row) != N_cases:
                     raise ValueError(
                         f"The inputs to the neural network must all have the same length. "
-                        f"(Conflicting lengths: {N_cases} and {length(row)})"
+                        f"(Conflicting lengths: {N_cases} and {len(row)})"
                     )
 
     for i, row in enumerate(input_rows):
@@ -330,7 +362,7 @@ def get_aero_with_corrections(
     CL = nf_aero["CL"]
     CD = nf_aero["CD"] * effective_CD_multiplier
     CM = nf_aero["CM"]
-    Cpmin_0 = min_fn(
+    Cpmin_0 = softmin(
         *[1 - nf_aero[f"upper_bl_ue/vinf_{i}"] ** 2 for i in range(NUM_BL_POINTS)],
         *[1 - nf_aero[f"lower_bl_ue/vinf_{i}"] ** 2 for i in range(NUM_BL_POINTS)],
         softness=0.01
@@ -342,7 +374,7 @@ def get_aero_with_corrections(
     CL_if_separated, CD_if_separated, CM_if_separated = _post_stall_model(alpha)
     alpha_stall_positive = 20
     alpha_stall_negative = -20
-    is_separated = max_fn(alpha - alpha_stall_positive, alpha_stall_negative - alpha) / 3
+    is_separated = softmax(alpha - alpha_stall_positive, alpha_stall_negative - alpha) / 3
     CL = _blend(is_separated, CL_if_separated, CL)
     CD = np.exp(_blend(is_separated, np.log(CD_if_separated + 0.074/Re**0.2), np.log(CD)))
     CM = _blend(is_separated, CM_if_separated, CM)
@@ -364,11 +396,11 @@ def get_aero_with_corrections(
     See fits at: /AeroSandbox/studies/MachFitting/CriticalMach/
     """
     Cpmin_0 = _blend(is_separated, -1 - 0.5 * np.sin(np.radians(alpha)) ** 2, Cpmin_0)
-    Cpmin_0 = min_fn(Cpmin_0, np.zeros_like(Cpmin_0), softness=0.001)
+    Cpmin_0 = softmin(Cpmin_0, np.zeros_like(Cpmin_0), softness=0.001)
     mach_crit = (1.0115710267016 - Cpmin_0 + 0.65824313510071 * (-Cpmin_0) ** 0.6724789439840343) ** -0.5504677038358711
     mach_dd = mach_crit + (0.1 / 320) ** (1 / 3)  # drag divergence taken from W.H. Mason's Korn Equation
     beta_squared_ideal = 1 - mach**2
-    beta = max_fn(beta_squared_ideal, -beta_squared_ideal, softness=0.5) ** 0.5
+    beta = softmax(beta_squared_ideal, -beta_squared_ideal, softness=0.5) ** 0.5
     CL = CL / beta
     CM = CM / beta
     Cpmin = Cpmin_0 / beta  # Prandtl-Glauert
@@ -414,7 +446,7 @@ def get_aero_with_corrections(
 
     # Shift aerodynamic center
     has_aerodynamic_center_shift = (mach - (mach_dd + 0.06)) / 0.06
-    has_aerodynamic_center_shift = max_fn(
+    has_aerodynamic_center_shift = softmax(
         is_separated,
         has_aerodynamic_center_shift,
         softness=0.1

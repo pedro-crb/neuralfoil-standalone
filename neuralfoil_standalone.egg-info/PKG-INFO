@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: neuralfoil-standalone
+Version: 0.2.3
+Summary: neuralfoil-standalone is a fork of NeuralFoil without the explicit AeroSandbox dependency
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+Requires-Dist: numpy>=1

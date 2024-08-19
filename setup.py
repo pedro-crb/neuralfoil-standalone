@@ -9,7 +9,6 @@ setup(
     python_requires='>=3.11',
     install_requires=[
         'numpy >= 1',
-        'optisandbox >= 4.2.4'
     ],
     include_package_data=True,
     package_data={
