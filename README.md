@@ -6,10 +6,7 @@
 ## Installation
 
 1. **Download or Clone the Repository**  
-   Clone the repository or download it directly from the GitHub page:
-   ```bash
-   git clone https://github.com/yourusername/neuralfoil-standalone.git
-   ```
+   Clone the repository or download it directly from the GitHub page
 
 2. **Install the Package**  
    ```bash
